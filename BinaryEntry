@@ -1,0 +1,66 @@
+import streamlit as st
+import pandas as pd
+import ta.momentum
+import plotly.graph_objects as go
+
+st.title("BinaryEntry — Análise de Mercado (M1)")
+
+file = st.file_uploader("Envie CSV de candles", type=["csv"])
+
+if file:
+    df = pd.read_csv(file, parse_dates=["datetime"])
+
+    # Calcula indicadores
+    df["ema20"] = df["close"].ewm(span=20).mean()
+    df["ema50"] = df["close"].ewm(span=50).mean()
+    df["ema200"] = df["close"].ewm(span=200).mean()
+    df["rsi14"] = ta.momentum.RSIIndicator(df["close"], 14).rsi()
+
+    # Gera sinais
+    sinais = []
+    for i in range(len(df)):
+        if df["ema20"].iloc[i] > df["ema50"].iloc[i] and df["rsi14"].iloc[i] > 50:
+            sinais.append("CALL")
+        elif df["ema20"].iloc[i] < df["ema50"].iloc[i] and df["rsi14"].iloc[i] < 50:
+            sinais.append("PUT")
+        else:
+            sinais.append("AGUARDAR")
+
+    df["sinal"] = sinais
+
+    # → PLOTA O GRÁFICO
+    fig = go.Figure(data=[go.Candlestick(
+        x=df.index,
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"]
+    )])
+
+    fig.add_trace(go.Scatter(x=df.index, y=df["ema20"], mode="lines", name="EMA 20"))
+    fig.add_trace(go.Scatter(x=df.index, y=df["ema50"], mode="lines", name="EMA 50"))
+    fig.add_trace(go.Scatter(x=df.index, y=df["ema200"], mode="lines", name="EMA 200"))
+
+    calls = df[df["sinal"] == "CALL"]
+    puts = df[df["sinal"] == "PUT"]
+
+    fig.add_trace(go.Scatter(
+        x=calls.index, y=calls["high"] * 1.001,
+        mode="markers", name="CALL",
+        marker=dict(symbol="triangle-up", size=10)
+    ))
+
+    fig.add_trace(go.Scatter(
+        x=puts.index, y=puts["low"] * 0.999,
+        mode="markers", name="PUT",
+        marker=dict(symbol="triangle-down", size=10)
+    ))
+
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Mostra últimas entradas no painel
+    st.subheader("Últimos 20 candles com sinais")
+    st.dataframe(df.tail(20))
+
+    st.subheader("Resumo dos sinais")
+    st.write(df["sinal"].value_counts())
